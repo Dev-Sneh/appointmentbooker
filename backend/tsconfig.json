@@ -8,8 +8,9 @@
     "outDir": "./dist",
     "rootDir": "./",
     "strict": true,
-    "moduleResolution": "node",
-    "types": ["node"]
+     "types": ["node"],
+    "moduleResolution": "node"
+   
   },
   "include": ["server.ts", "controllers", "routes", "firebase", "models"]
 }
