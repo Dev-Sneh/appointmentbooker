@@ -13,10 +13,10 @@ export interface CallDetails {
     name: string;
   };
   type: "onboarding" | "follow-up";
-  date: string;              // required
-  startTime: string;         // "HH:mm"
-  duration: number;          // 20 or 40
+  date: string;              
+  startTime: string;        
+  duration: number;          
   recurring: boolean;
-  dayOfWeek?: number;        // 0–6 (if recurring)
+  dayOfWeek?: number;        
 }
 
