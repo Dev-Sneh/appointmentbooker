@@ -1,10 +1,7 @@
 import * as admin from 'firebase-admin';
 import { ServiceAccount } from 'firebase-admin';
-import * as dotenv from 'dotenv';
 
-dotenv.config(); 
-
-const serviceAccount = JSON.parse(process.env.FIREBASE_CONFIG!) as ServiceAccount;
+const serviceAccount = require('./serviceAccountKey.json') as ServiceAccount;
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -13,3 +10,4 @@ if (!admin.apps.length) {
 }
 
 export const db = admin.firestore();
+
