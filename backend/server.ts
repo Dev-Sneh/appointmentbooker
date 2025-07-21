@@ -6,12 +6,7 @@ const app = express();
 const PORT = 5000;
 
 app.use(
-  cors({
-    origin: "https://appointbooker.netlify.app", 
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
+  cors()
 );
 
 app.use(express.json());

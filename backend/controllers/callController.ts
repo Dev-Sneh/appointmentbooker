@@ -1,84 +1,93 @@
 import { Request, Response } from "express";
-import db from "../firebase/config";
+import { db } from "../firebase/config";
+import { CallDetails } from "../models/callModel";
 
-// Mock data as fallback
-let mockCalls: any[] = [];
+const COLL = "calls";
 
+// GET calls by date
 export const getCallsByDate = async (req: Request, res: Response) => {
   try {
-    const { date } = req.params;
-    console.log("📅 Getting calls for date:", date);
+    const date = req.query.date as string;
+    if (!date) return res.status(400).json({ error: "Missing date" });
 
-    if (db) {
-      // Use Firebase
-      const snapshot = await db
-        .collection("calls")
-        .where("date", "==", date)
-        .get();
+    const dayOfWeek = new Date(date).getDay();
 
-      const calls = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+    const oneTimeSnap = await db.collection(COLL).where("date", "==", date).get();
+    const recurringSnap = await db
+      .collection(COLL)
+      .where("recurring", "==", true)
+      .where("dayOfWeek", "==", dayOfWeek)
+      .get();
 
-      res.json({ success: true, data: calls, source: "firebase" });
-    } else {
-      // Use mock data
-      const filteredCalls = mockCalls.filter((call) => call.date === date);
-      res.json({ success: true, data: filteredCalls, source: "mock" });
-    }
-  } catch (error) {
-    console.error("Error fetching calls:", error);
-    res.status(500).json({ success: false, error: "Failed to fetch calls" });
+    const calls = [
+      ...oneTimeSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as CallDetails) })),
+      ...recurringSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() as CallDetails) })),
+    ];
+
+    res.json(calls);
+  } catch (err) {
+    console.error("Error in getCallsByDate:", err);
+    res.status(500).json({ error: "Failed to fetch calls" });
   }
 };
 
+// POST call with overlap and duplicate check
 export const addCall = async (req: Request, res: Response) => {
   try {
-    const callData = req.body;
-    console.log("💾 Adding call:", callData);
+    const data = req.body as CallDetails;
 
-    if (db) {
-      // Use Firebase
-      const docRef = await db.collection("calls").add(callData);
-      const newCall = { id: docRef.id, ...callData };
-      res.status(201).json({ success: true, data: newCall, source: "firebase" });
-    } else {
-      // Use mock data
-      const newCall = {
-        ...callData,
-        id: `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        createdAt: new Date().toISOString(),
-      };
-      mockCalls.push(newCall);
-      res.status(201).json({ success: true, data: newCall, source: "mock" });
+    if (!data.date || !data.startTime || !data.duration || !data.client?.id) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
-  } catch (error) {
-    console.error("Error creating call:", error);
-    res.status(500).json({ success: false, error: "Failed to create call" });
+
+    const dayOfWeek = new Date(data.date).getDay();
+    if (data.recurring) data.dayOfWeek = dayOfWeek;
+
+    const baseDate = data.date;
+    const newStart = new Date(`${baseDate}T${data.startTime}:00`);
+    const newEnd = new Date(newStart.getTime() + data.duration * 60000);
+
+    // Fetch existing calls
+    const [oneTimeSnap, recurringSnap] = await Promise.all([
+      db.collection(COLL).where("date", "==", data.date).get(),
+      db.collection(COLL).where("recurring", "==", true).where("dayOfWeek", "==", dayOfWeek).get(),
+    ]);
+
+    const allDocs = [...oneTimeSnap.docs, ...recurringSnap.docs];
+
+    const hasOverlap = allDocs.some((doc) => {
+      const existing = doc.data() as CallDetails;
+
+      const exStart = new Date(`${baseDate}T${existing.startTime}:00`);
+      const exEnd = new Date(exStart.getTime() + existing.duration * 60000);
+
+      const overlap = !(newEnd <= exStart || newStart >= exEnd);
+      const sameClient = existing.client?.id === data.client?.id;
+      const sameDate = existing.date === data.date;
+
+      return overlap || (sameClient && sameDate);
+    });
+
+    if (hasOverlap) {
+      return res.status(400).json({ error: "Time slot overlaps with another booking or already booked for this client" });
+    }
+
+    const docRef = await db.collection(COLL).add(data);
+    res.status(201).json({ id: docRef.id });
+  } catch (err) {
+    console.error("Error in addCall:", err);
+    res.status(500).json({ error: "Failed to add call" });
   }
 };
 
+// DELETE call
 export const deleteCall = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    console.log("🗑️ Deleting call:", id);
-
-    if (db) {
-      // Use Firebase
-      await db.collection("calls").doc(id).delete();
-      res.json({ success: true, message: "Call deleted successfully", source: "firebase" });
-    } else {
-      // Use mock data
-      const callIndex = mockCalls.findIndex((call) => call.id === id);
-      if (callIndex === -1) {
-        return res.status(404).json({ success: false, error: "Call not found" });
-      }
-      mockCalls.splice(callIndex, 1);
-      res.json({ success: true, message: "Call deleted successfully", source: "mock" });
-    }
-  } catch (error) {
-    console.error("Error deleting call:", error);
-    res.status(500).json({ success: false, error: "Failed to delete call" });
+    const id = req.params.id;
+    await db.collection(COLL).doc(id).delete();
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error in deleteCall:", err);
+    res.status(500).json({ error: "Failed to delete call" });
   }
 };
